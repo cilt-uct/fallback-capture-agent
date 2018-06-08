@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf8">
+  <meta name="viewport" content="width=device-width">
+  <title>Fallback CA</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  
+  <main>
+    <ul id="queue">
+      <h4>Queued for checking</h4>
+      <div class="list"></div>
+    </ul>
+    <ul id="recording">
+      <h4>Recording</h4>
+      <li><span>Title</span><span>Location</span><span>Start time</span><span>Progress</span></li>
+      <div class="list"></div>
+    </ul>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

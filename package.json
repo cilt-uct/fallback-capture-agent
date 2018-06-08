@@ -1,0 +1,15 @@
+{
+  "name": "fallback-recorder",
+  "license": "ECL-2.0",
+  "description": "Fallback recorder when capture agents are unavailable",
+  "repository": "https:///github.com/cilt-uct/fallback-capture-agent",
+  "author": "Duncan Smith (@slampunk)",
+  "dependencies": {
+    "dotenv": "^5.0.0",
+    "express": "^4.16.0",
+    "mkdirp": "0.5.1",
+    "request": "2.87.0",
+    "request-digest": "1.0.10",
+    "socket.io": "^2.1.1"
+  }
+}

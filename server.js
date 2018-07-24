@@ -106,7 +106,7 @@ function getSchedule() {
              .filter(agent => !!agent)
              .forEach(async (agent) => {
                if (!queue[agent.mediapackage]) {
-                 let agentAudio = await hasAudio(agent.stream);
+                 let agentAudio = agent.stream ? await hasAudio(agent) : false;
                  if (agentAudio) {
                    let buffer = isUpdateLate(agent) ? 1 : (
                                   !isAgentHealthy(agent) ? startBuffer : 0
@@ -127,6 +127,9 @@ function getSchedule() {
                      users[key].socket.emit('queue-item', agent);
                    }
                  }
+                 else {
+                   console.log(`${agent.stream} does not have an audio stream attached. Skipping recording/checking...`);
+                 }
                }
            });
          })
@@ -145,9 +148,16 @@ function isAgentHealthy(agent) {
   return agent.state == 'idle' || agent.state == 'capturing';
 }
 
-function hasAudio(stream) {
+function hasAudio(agent) {
   return new Promise(resolve => {
-    cp.exec(`ffprobe -loglevel quiet -show_streams ${stream} | grep codec_type=audio`, (err, res) => {
+    if (!agent.stream) {
+      console.log(`${agent.name} has no stream property`);
+      return resolve(false);
+    }
+    if (agent.stream.indexOf('rtsp') === -1) {
+      agent.stream = `rtsp://${agent.name}-cam01.uct.ac.za/axis-media/media.amp`;
+    }
+    cp.exec(`ffprobe -loglevel quiet -show_streams ${agent.stream} | grep codec_type=audio`, (err, res) => {
       if (err) {
         return resolve(false);
       }

@@ -5,6 +5,8 @@
   "repository": "https:///github.com/cilt-uct/fallback-capture-agent",
   "author": "Duncan Smith (@slampunk)",
   "dependencies": {
+    "hoek": "^5.0.3",
+    "hawk": "^7.0.0",
     "dotenv": "^5.0.0",
     "express": "^4.16.0",
     "mkdirp": "0.5.1",

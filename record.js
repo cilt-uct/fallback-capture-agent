@@ -48,7 +48,6 @@ process.on('message', msg => {
 });
 
 function notifyIfReady() {
-  console.log('my state is', state);
   if (state.duration && state.directory && state.stream) {
     process.send({event: 'record.ready'});
   }
@@ -61,7 +60,6 @@ function startRecording() {
 
   let recording = cp.spawn('ffmpeg', args);
 
-//  recording.stdout.on('data', data => console.log(data));
   process.send('record.start');
   recording.stderr.on('data', data => {
     let progress = data.toString();

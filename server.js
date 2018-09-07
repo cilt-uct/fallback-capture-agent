@@ -45,7 +45,6 @@ let ocRequest = (url, opts) => {
 
     let req = dc.requestAsync(connOptions)
                .then(res => {
-                 console.log(res);
                  try {
                    return resolve(JSON.parse(res.body));
                  } catch(e) {
@@ -163,10 +162,6 @@ function isAgentHealthy(agent) {
 
 function hasAudio(agent) {
   return new Promise(resolve => {
-//    if (!agent.stream) {
-//      console.log(`${agent.name} has no stream property`);
-//      return resolve(false);
-//    }
     if (!agent.stream || agent.stream.indexOf('rtsp') === -1) {
       agent.stream = `rtsp://${agent.name}-cam01.uct.ac.za/axis-media/media.amp`;
     }

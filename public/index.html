@@ -7,17 +7,60 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  
+  <input class="toggleCover hidden" id="deleteRecordingToggle" type="checkbox" autocomplete="off" />
+  <div class="modal" id="deleteRecordingModal">
+    <label class="close" for="deleteRecordingToggle"></label>
+    <h2>Delete <span id="deleteEventName"></span></h2>
+    <p>Are you sure?</p>
+    <p class="actions">
+      <label for="deleteRecordingToggle" class="info">Cancel</label>
+      <button type="button" class="danger" id="deleteRecording">Delete</button>
+    </p>
+  </div>
+  <div id="cover">
+  </div>
   <main>
-    <ul id="queue">
-      <h4>Queued for checking</h4>
-      <div class="list"></div>
-    </ul>
-    <ul id="recording">
-      <h4>Recording</h4>
-      <li><span>Title</span><span>Location</span><span>Start time</span><span>Progress</span></li>
-      <div class="list"></div>
-    </ul>
+    <header>
+      <a href="https://media.uct.ac.za/">Admin Login</a
+      ><a href="http://camonitor.uct.ac.za:3000/" target="_blank">IP Cameras</a
+      ><a href="http://camonitor.uct.ac.za/ls/ls-status.txt" target="_blank">Lecturesight</a
+      ><a href="http://camonitor.uct.ac.za/lecturesight/overview/" target="_blank">LS Overview</a
+      ><a href="https://media.uct.ac.za/mrtg/clock/" target="_blank">Clock</a
+      ><a href="https://camonitor.uct.ac.za/audio/">Audio monitoring</a
+      ><a href="https://media.uct.ac.za/mrtg/dashboard/stats.html">Opencast Stats</a
+      ><a href="https://media.uct.ac.za/mrtg/dashboard/stats.html?state=error">Opencast Failures</a
+      ><a href="https://media.uct.ac.za/mrtg/rpi/" target="_blank">RPis</a
+      ><a href="http://srvwinweb001.wf.uct.ac.za/SPlusTTable/Venues.aspx?AcadYear=2016" target="_blank">Venue Timetable</a>
+    </header>
+    <h1>Fallback recorder</h1>
+    <input type="radio" name="view" id="toggleRecordingView" checked />
+    <input type="radio" name="view" id="toggleUpcomingView" />
+    <input type="radio" name="view" id="toggleCompletedView" />
+    <div class="viewSelectionContainer">
+      <label class="viewToggle" for="toggleRecordingView" data-total data-name="recordings">Live recordings</label>
+      <label class="viewToggle" for="toggleUpcomingView" data-total data-name="upcoming">CA checks</label>
+      <label class="viewToggle" for="toggleCompletedView" data-total data-name="completed">Completed</label>
+      <button id="caCheck" class="btn info pull-right"></button>
+      <button id="recCheck" class="btn success pull-right">Compare recordings against server</button>
+    </div>
+    <section class="view">
+      <ul id="recording">
+        <li><span>Title</span><span>Location</span><span>Start time</span><span>Progress</span></li>
+        <div class="list"></div>
+      </ul>
+    </section>
+    <section class="view">
+      <ul id="queue">
+        <li><span>Title</span><span>Location</span><span>Start time</span></li>
+        <div class="list"></div>
+      </ul>
+    </section>
+    <section class="view">
+      <ul id="completed">
+        <li><span>Title</span><span>Location</span><span>Recording date</span><span>Action</span></li>
+        <div class="list"></div>
+      </ul>
+    </section>
   </main>
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/app.js"></script>

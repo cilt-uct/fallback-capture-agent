@@ -213,6 +213,12 @@ ul li span {
   text-overflow: ellipsis;
 }
 
+ul li span a {
+  text-decoration: none;
+  color: #337ab7;
+  display: block;
+}
+
 section > ul > li:first-of-type {
   background: #eee;
   height: 3rem;
@@ -267,12 +273,103 @@ ul .list:empty::before {
   transition: height 0.5s;
 }
 
+#completed .list > li > span:first-of-type {
+  position: relative;
+}
+
+#completed .list > li[data-state] > span:first-of-type {
+  padding-left: 1.5rem;
+}
+#completed .list > li[data-state] > span:first-of-type::before,
+#completed .list > li[data-state] > span:first-of-type::after {
+  content: '';
+  position: absolute;
+  cursor: help;
+}
+
+#completed .list > li[data-state=unneeded] > span:first-of-type::before {
+  width: 1rem;
+  height: 1rem;
+  top: 0.25rem;
+  left: 0.25rem;
+  background: linear-gradient(205deg, #009688 0%, #009688 30%, transparent 30%, transparent calc(200%/3), #009688 calc(200%/3)),
+              linear-gradient(115deg, transparent 0%, transparent 50%, white calc(50% + 1px), transparent calc(50% + 2px)),
+              linear-gradient(150deg, #009688 0%, #009688 40%, transparent 40%, transparent calc(200%/3), #009688 calc(200%/3)),
+              linear-gradient(60deg, transparent 0%, transparent calc(100%/3), white calc(100%/3 + 1px), transparent calc(100%/3 + 2px)),
+              #009688;
+  border-radius: 50%;
+}
+
+#completed .list > li[data-state=ingestable] > span:first-of-type::before {
+  width: 1rem;
+  height: 1rem;
+  line-height: 1rem;
+  top: 0.25rem;
+  left: 0.25rem;
+  border-radius: 50%;
+  content: '!';
+  color: white;
+  text-align: center;
+  background: #1e88e5;
+  font-size: 0.9rem;
+  font-family: Georgia, serif;
+}
+
+#completed .list > li[data-state=unusable] > span:first-of-type::before {
+  width: 1rem;
+  height: 1rem;
+  line-height: 0.875rem;
+  top: 0.25rem;
+  left: 0.25rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, transparent 0%, transparent 50%, #ef5350 50%, #ef5350 100%),
+              linear-gradient(135deg, transparent 0%, transparent calc(50% - 1px), white 50%,
+                              transparent calc(50% + 1px), transparent 100%),
+              linear-gradient(45deg, transparent 0%, transparent calc(50% - 1px), white 50%,
+                              transparent calc(50% + 1px), transparent 100%),
+              #ef5350;
+  font-size: 0.9
+}
+
+#completed .list > li[data-state=ingested] > span:first-of-type::before {
+  width: 1rem;
+  height: 1rem;
+  top: 0.25rem;
+  left: 0.25rem;
+  background: linear-gradient(205deg, #009688 0%, #009688 30%, transparent 30%, transparent calc(200%/3), #009688 calc(200%/3)),
+              linear-gradient(115deg, transparent 0%, transparent 50%, white calc(50% + 1px), transparent calc(50% + 2px)),
+              linear-gradient(150deg, #009688 0%, #009688 40%, transparent 40%, transparent calc(200%/3), #009688 calc(200%/3)),
+              linear-gradient(60deg, transparent 0%, transparent calc(100%/3), white calc(100%/3 + 1px), transparent calc(100%/3 + 2px)),
+              #009688;
+  border-radius: 50%;
+  z-index: 1;
+}
+
+#completed .list > li[data-state].ingesting > span:first-of-type::before,
+#completed .list > li[data-state].ingesting > span:first-of-type::after {
+  width: 8px;
+  height: 8px;
+  border: 4px solid #009688;
+  top: calc(0.75rem - 4px);
+  left: calc(0.75rem - 2px);
+  border-radius: 50%;
+  opacity: 0;
+  animation: supernova 1s linear infinite;
+  animation-fill-mode: backwards;
+  content: '';
+  background: none;
+}
+
+#completed .list > li[data-state].ingesting > span:first-of-type::after {
+  animation: supernova 1s linear 0.5s infinite;
+}
+
 #completed li ul {
   padding: 0.5rem;
   border: 1px solid #eee;
   position: relative;
   overflow: hidden;
-  height: 11rem;
+  height: 13rem;
   opacity: 0;
   transition: opacity 0.3s;
 }
@@ -339,6 +436,34 @@ ul .list:empty::before {
   content: '';
 }
 
+#completed li ul button[disabled],
+#completed li[data-state=unusable] ul button {
+  font-weight: 400;
+  cursor: not-allowed;
+}
+
+#completed li[data-state=unusable] ul button {
+  pointer-events: none;
+}
+
+#completed li ul button[disabled]:last-of-type::before,
+#completed li[data-state=unusable] ul button:last-of-type::before {
+  background: #999;
+}
+
+#completed li ul button:last-of-type::after {
+  content: 'Ingest recording';
+}
+
+#completed li ul button[disabled]:last-of-type::after {
+  content: 'Ingested already';
+}
+
+#completed li[data-state=unusable] ul button:last-of-type::after {
+  content: 'Unable to ingest failed recording';
+}
+
+
 #completed li.ingesting ul button:last-of-type {
   text-shadow: 0 1px black;
 }
@@ -372,7 +497,7 @@ button progress {
 }
 
 #completed .list input:checked + li {
-  height: 15rem;
+  height: 16rem;
 }
 
 #completed label {
@@ -428,33 +553,25 @@ button, label {
   font-family: Ubuntu, 'Segoe UI', 'Helvetica Neue', Roboto, Verdana, sans-serif;
 }
 
-#caCheck {
+.checkButton {
   position: relative;
   transition: padding-right 0.3s;
 }
 
-#caCheck[disabled] {
+.checkButton[disabled] {
   pointer-events: none;
   padding-right: 2.5rem;
-}
-
-#caCheck::before {
-  content: 'Check CAs now';
-}
-
-#caCheck[disabled]::before {
-  content: 'Checking CAs...';
   font-style: italic;
 }
 
-#caCheck::after {
+.checkButton::after {
   opacity: 0;
   transition: opacity 0.3s;
   content: '';
   animation: spin 1s linear infinite;
 }
 
-#caCheck[disabled]::after {
+.checkButton[disabled]::after {
   content: '';
   position: absolute;
   width: 1.5rem;
@@ -467,6 +584,28 @@ linear-gradient(0deg, transparent 0%, transparent calc(50% - 2px), #1e88e5 calc(
   border-radius: 50%;
   opacity: 1;
   transition: opacity 0.3s 0.1s;
+}
+
+#recCheck[disabled]::after {
+  background: linear-gradient(90deg, transparent 0%, transparent calc(50% - 2px), #009688 calc(50% - 2px), #009688 calc(50% + 2px), transparent calc(50% + 2px)),
+linear-gradient(0deg, transparent 0%, transparent calc(50% - 2px), #009688 calc(50% - 2px), #009688 calc(50% + 2px), transparent calc(50% + 2px)),
+              radial-gradient(circle at center, transparent 0%, transparent calc(100% - 8px), white calc(100% - 8px), white 100%);
+}
+
+#caCheck::before {
+  content: 'Check CAs now';
+}
+
+#caCheck[disabled]::before {
+  content: 'Checking CAs...';
+}
+
+#recCheck::before {
+  content: 'Compare recordings against server';
+}
+
+#recCheck[disabled]::before {
+  content: 'Running comparison check of recordings';
 }
 
 .viewSelectionContainer button {
@@ -501,4 +640,23 @@ progress[value]::-webkit-progress-bar {
 progress[value]::-webkit-progress-value {
   border-radius: 2px;
   background: #009688;
+}
+
+@keyframes supernova {
+  0% {
+    opacity: 1;
+    width: 8px;
+    height: 8px;
+    top: calc(0.75rem - 4px);
+    left: calc(0.75rem - 4px);
+/*    transform: translate(0,0);*/
+  }
+  100% {
+    opacity: 0;
+    width: 2rem;
+    height: 2rem;
+    top: -0.25rem;
+    left: -0.25rem;
+ /*   transform: translate(-50%,-50%);*/
+  }
 }

@@ -4,8 +4,8 @@ let completed = {};
 
 let socket = io();
 
-document.getElementById('deleteRecording').addEventListener('click', deleteRecording, false);
 document.getElementById('caCheck').addEventListener('click', checkCAs, false);
+document.getElementById('recCheck').addEventListener('click', checkRecordings, false);
 
 socket.on('queue', queue => {
   let queueList = document.querySelector('#queue .list');
@@ -135,11 +135,20 @@ function setActionForCompleted(details) {
   if (!element) {
     return console.log('no element');
   }
-
+  element.setAttribute('data-state', details.state);
+  element.querySelector('span:first-child')
+    .title = getTitleTextForState(details.state);
   element.querySelector('span:last-child')
     .appendChild(createElement('label', { attributes: {for: `togglecompleted-${details.id}`} }));
 
   let detailsList = createElement('ul');
+  let mpInfo = createElement('li');
+  let mpField = createElement('span', 'Mediapackage');
+  let mpValue = createElement('span', details.id);
+  mpInfo.appendChild(mpField);
+  mpInfo.appendChild(mpValue);
+  detailsList.appendChild(mpInfo);
+
   for (let key in details.probe) {
     let probeInfo = createElement('li');
     let probeField = createElement('span', key);
@@ -147,6 +156,9 @@ function setActionForCompleted(details) {
     probeInfo.appendChild(probeField);
     probeInfo.appendChild(probeValue);
     detailsList.appendChild(probeInfo);
+    if (key === 'duration') {
+      probeValue.textContent += ` (${(details.size / 1024 / 1024).toFixed(2)} MB)`
+    }
   }
   element.appendChild(detailsList);
 
@@ -154,22 +166,7 @@ function setActionForCompleted(details) {
   let actionsContainer = createElement('span');
   actions.appendChild(actionsContainer);
 
-  let infoBtn = document.createElement('a');
-  infoBtn.textContent = 'Opencast Link';
-  infoBtn.href = `https://media.uct.ac.za/admin-ng/index.html#/events/events?modal=event-details&tab=metadata&resourceId=${details.id}`;
-  infoBtn.target = '_blank';
-  infoBtn.className = 'info';
-  actionsContainer.appendChild(infoBtn);
-
-  let removeBtn = document.createElement('label');
-  removeBtn.textContent = 'Delete';
-  removeBtn.setAttribute('for', 'deleteRecordingToggle');
-  removeBtn.className = 'action danger';
-  removeBtn.addEventListener('click', setupDeletion, false);
-  actionsContainer.appendChild(removeBtn);
-
   let ingestBtn = document.createElement('button');
-  ingestBtn.textContent = 'Ingest' + (details.ingestDate ? 'ed already' : ' recording');
   ingestBtn.disabled = true;
   if (!details.ingestDate) {
     ingestBtn.addEventListener('click', ingestCompleted, false);
@@ -182,6 +179,16 @@ function setActionForCompleted(details) {
   actionsContainer.appendChild(ingestBtn);
 
   detailsList.appendChild(actions);
+}
+
+function getTitleTextForState(state) {
+  let stateTitles = {
+    ingestable: 'This recording may be ingested',
+      unneeded: 'This recording may be ignored',
+      unusable: 'Failed backup',
+      ingested: 'Recording has already been ingested'
+  }
+  return stateTitles[state] || 'Unknown state';
 }
 
 function setupDeletion(e) {
@@ -331,12 +338,20 @@ function createDetailedElement(elType, details) {
     uiElement = createElement('li', {id: `${elType}-${details.mediapackage || details.id}`, data: {id: details.id}});
   }
 
-  let title = createElement('span', details.title);
+  let titleSpan = createElement('span');
+  let titleLink = createElement('a', details.title, {
+    properties: {
+      target: '_blank',
+       title: '',
+        href: `https://media.uct.ac.za/admin-ng/index.html#/events/events?modal=event-details&tab=metadata&resourceId=${details.id}`
+    }
+  });
+  titleSpan.appendChild(titleLink);
   let agent = createElement('span', details.name || details.agent);
   let start = createElement('span', getStartDate(details.start || details.startDate));
   let current = createElement('span');
 
-  uiElement.appendChild(title);
+  uiElement.appendChild(titleSpan);
   uiElement.appendChild(agent);
   uiElement.appendChild(start);
   uiElement.appendChild(current);
@@ -345,6 +360,12 @@ function createDetailedElement(elType, details) {
 
 function checkCAs(e) {
   fetch('/agent', {
+    method: 'PUT'
+  });
+}
+
+function checkRecordings(e) {
+  fetch('/rec', {
     method: 'PUT'
   });
 }
@@ -361,8 +382,20 @@ socket.on('agent-check-end', () => {
   }, 1000);
 });
 
+socket.on('rec-check-start', () => {
+  let recCheckBtn = document.getElementById('recCheck');
+  recCheckBtn.disabled = true;
+});
+
+socket.on('rec-check-end', () => {
+  setTimeout(() => {
+    let recCheckBtn = document.getElementById('recCheck');
+    recCheckBtn.disabled = '';
+  }, 1000);
+});
+
 socket.on('ingest-initiated', mpId => {
-  console.log('ingest incoming');
+  console.log('ingesting', mpId);
   let completedEl = document.getElementById(`completed-${mpId}`);
   if (completedEl) {
     completedEl.classList.add('ingesting');
@@ -375,3 +408,24 @@ socket.on('ingest-failed', details => {
     completedEl.classList.remove('ingesting');
   }
 });
+
+socket.on('ingest-initiated', mpId => {
+  console.log('ingested', mpId);
+  let completedEl = document.getElementById(`completed-${mpId}`);
+  if (completedEl) {
+    completedEl.classList.remove('ingesting');
+    let ingestBtn = completedEl.querySelector('button:last-of-type');
+    ingestBtn.disabled = true;
+    ingestBtn.removeEventListener('click', ingestCompleted, false);
+  }
+});
+
+socket.on('ingest-state', details => {
+  let completedEl = document.getElementById(`completed-${details.id}`);
+  if (completedEl) {
+    completedEl.setAttribute('data-state', details.state);
+    completedEl.classList.remove('ingesting');
+  }
+});
+
+

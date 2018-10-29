@@ -9,12 +9,33 @@
 <body>
   <input class="toggleCover hidden" id="deleteRecordingToggle" type="checkbox" autocomplete="off" />
   <div class="modal" id="deleteRecordingModal">
-    <label class="close" for="deleteRecordingToggle"></label>
+    <label class="close" for="deleteRecordingToggle" title="Close modal"></label>
     <h2>Delete <span id="deleteEventName"></span></h2>
     <p>Are you sure?</p>
     <p class="actions">
       <label for="deleteRecordingToggle" class="info">Cancel</label>
       <button type="button" class="danger" id="deleteRecording">Delete</button>
+    </p>
+  </div>
+  <input class="toggleCover hidden" id="adhocRecordingToggle" type="checkbox" autocomplete="off" />
+  <div class="modal" id="dhocRecordingModal">
+    <label class="close" for="adhocRecordingToggle" title="Close modal"></label>
+    <h2>Start ad-hoc recording</h2>
+    <p><span>Venue</span><span
+      >
+        <select>
+          <option value="">--Choose capture agent--</option>
+          <option value="clinskills1">GSH Clinical Skills Lab 1</option>
+          <option value="clinskills2">GSH Clinical Skills Lab 2</option>
+          <option value="clinskills3">GSH Clinical Skills Lab 3</option>
+          <option value="clinskills4">GSH Clinical Skills Lab 4</option>
+        </select>
+      </span>
+    </p>
+    <p><span>Duration (mins)</span><span><input type="number" placehoder="Default 10mins"/></span></p>
+    <p class="actions">
+      <label for="adhocRecordingToggle" class="info">Cancel</label>
+      <button type="button" class="danger" id="startRecording">Start recording</button>
     </p>
   </div>
   <div id="cover">
@@ -36,12 +57,15 @@
     <input type="radio" name="view" id="toggleRecordingView" checked />
     <input type="radio" name="view" id="toggleUpcomingView" />
     <input type="radio" name="view" id="toggleCompletedView" />
+    <input type="radio" name="view" id="toggleAdhocView" />
     <div class="viewSelectionContainer">
-      <label class="viewToggle" for="toggleRecordingView" data-total data-name="recordings">Live recordings</label>
-      <label class="viewToggle" for="toggleUpcomingView" data-total data-name="upcoming">CA checks</label>
-      <label class="viewToggle" for="toggleCompletedView" data-total data-name="completed">Completed</label>
+      <label class="viewToggle" for="toggleRecordingView" data-total data-name="recordings">Live<span> recordings</span></label
+      ><label class="viewToggle" for="toggleUpcomingView" data-total data-name="upcoming">CA checks</label
+      ><label class="viewToggle" for="toggleCompletedView" data-total data-name="completed">Completed</label
+      ><label class="viewToggle" for="toggleAdhocView" data-total data-name="upcoming">Ad-hoc recording</label>
       <button id="caCheck" class="btn info pull-right checkButton"></button>
       <button id="recCheck" class="btn success pull-right checkButton"></button>
+      <button id="adhocStart" class="btn success pull-right checkButton"></button>
     </div>
     <section class="view">
       <ul id="recording">
@@ -58,6 +82,12 @@
     <section class="view">
       <ul id="completed">
         <li><span>Title</span><span>Location</span><span>Recording date</span><span>Action</span></li>
+        <div class="list"></div>
+      </ul>
+    </section>
+    <section class="view">
+      <ul id="adhoc">
+        <li><span>Title</span><span>Location</span><span>Start time</span><span>Progress</span></li>
         <div class="list"></div>
       </ul>
     </section>

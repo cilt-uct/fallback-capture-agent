@@ -26,44 +26,7 @@ let queue = {};
 let recorders = {};
 let users = {};
 let ingestQueue = [];
-/*
-let ocRequest = (url, opts) => {
-  opts = opts || {};
-  return new Promise((resolve, reject) => {
-    let connOptions = {
-        auth: {
-                     user: adminUser,
-                     pass: adminPass,
-          sendImmediately: false
-        },
-         url: `${host}${url}`,
-  
-      method: opts.method || 'GET',
-      headers: {
-        "User-Agent": "Node fallback CA",
-        "X-Requested-Auth": 'Digest'
-      }
-    }
 
-    if (opts.form) {
-      connOptions.formData = opts.form;
-    }
-
-    let req = request(connOptions, (err, res, body) => {
-      if (err) {
-        console.log('request error', err);
-        return reject(err);
-      }
-
-      try {
-        return resolve(JSON.parse(body));
-      } catch(e) {
-        return resolve(body);
-      }
-    });
-  });
-};
-*/
 let ocRequest = (url, opts) => {
   opts = opts || {};
   return new Promise((resolve, reject) => {
@@ -112,7 +75,7 @@ io.on('connection', socket => {
   socket.emit('recorders', Object.keys(recorders));
 
   getAllRecordings()
-    .then(recordings => socket.emit('history', recordings))
+    .then(recordings => socket.emit('history', recordings.filter(recording => Object.keys(recorders).indexOf(recording.id) === -1)))
     .catch();
 
   socket.on('recording-query', mpId => {
@@ -398,7 +361,7 @@ function getDuration(info) {
 
 function saveMediapackage(mpId, dir) {
   console.log('Saving mediapackage', mpId);
-  ocRequest(`/assets/episode/${mpId}`)
+  ocRequest(`/assets/episode/${mpId}`, {})
     .then(res => {
       fs.writeFile(`${dir}/baseManifest.xml`, res, err => {
         if (err) {
@@ -407,7 +370,7 @@ function saveMediapackage(mpId, dir) {
 
         parseString(res, (fe, obj) => {
           try {
-            ocRequest(obj.mediapackage.metadata[0].catalog[0].url[0].replace('http://localhost:8080', ''))
+            ocRequest(obj.mediapackage.metadata[0].catalog[0].url[0].replace('http://localhost:8080', '').replace('http://media.uct.ac.za', ''))
               .then(ep => {
                 fs.writeFile(`${dir}/episode.xml`, ep, eerr => {
                   if (eerr) {
@@ -522,6 +485,8 @@ app.put('/rec', async (req, res) => {
   const recs = await getAllRecordings();
   const proms = recs.map(async rec => {
     try {
+      let recordingDir = `${baseDir}/${rec.agent}/${rec.id}`;
+      saveMediapackage(rec.id, recordingDir);
       return {id: rec.id, agent: rec.agent, details: await getEventDetailsOnServer(rec.id)};
     } catch (err) {
       if (err.statusCode && err.statusCode === 404) {
@@ -867,9 +832,27 @@ function getEventDetailsOnServer(id) {
 
 async function ingestRecording(mp) {
   try {
+    let ingestAttempt = await ingestZippedMediapackage(mp);
+    console.log('ingest complete, workflow started', ingestAttempt);
+  } catch(e) {
+    console.log('caught error at ingestRecording', e);
+    io.emit('ingest-failed', {id: mp.id, err: e});
+  }
+/*
+  try {
     let remoteDetails = await getEventDetailsOnServer(mp.id);
     try {
-      addTrack(mp);
+      let trackifiedMp = await addTrack(mp);
+      console.log('trackified mp', trackifiedMp);
+
+      let wfOpts = {
+        method: 'POST',
+          form: {
+                  mediaPackage: trackifiedMp,
+                }
+      }
+      let ingest = await ocRequest('/ingest/ingest', wfOpts);
+      console.log('ingest complete, workflow started', ingest);
     } catch(trackErr) {
       console.log(trackErr);
     }
@@ -883,6 +866,7 @@ async function ingestRecording(mp) {
         io.emit('ingest-failed', {id: mp.id, err: e});
       }
   }
+*/
 }
 
 async function getManifest(mp) {
@@ -899,29 +883,20 @@ async function getManifest(mp) {
 }
 
 async function addTrack(mp) {
+  
   console.log('about to add track');
   try {
     let manifest = await getManifest(mp);
+
     let opts = {
       method: 'POST',
         form: {
                       flavor: 'presenter/source',
                 mediaPackage: manifest.toString(),
                         BODY: fs.createReadStream(`${baseDir}/${mp.agent}/${mp.id}/presenter.mp4`)
-
- /*                       BODY: {
-                            value: fs.createReadStream(`${baseDir}/${mp.agent}/${mp.id}/presenter.mp4`),
-//                            value: fs.readFileSync(`${baseDir}/${mp.agent}/${mp.id}/presenter.mp4`),
-                          options: {
-                               filename: 'presenter.mp4',
-                            contentType:  'video/mp4'
-                          }
-                        }*/
               }
     };
-    ocRequest('/ingest/addTrack', opts)
-      .then(() => console.log('done in add track'))
-      .catch(err => console.log('error in add track', err));
+    return await ocRequest('/ingest/addTrack', opts);
   } catch(e) {
     console.log(e);
     throw new Error(e);
@@ -1025,56 +1000,74 @@ function ingestZippedMediapackage(mp) {
   }
 
   let manifest = xml(jsonManifest, {declaration: true });
-  fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/manifest.xml`, manifest, async err => {
-    if (err) {
-      return console.log(err);
-    }
 
-    let zipFilePath = `/tmp/${Math.random().toString(36).substring(2, 8)}.zip`;
+  return new Promise((resolve, reject) => {
+    fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/manifest.xml`, manifest, async err => {
+      if (err) {
+        reject(err);
+        return console.log("zipped writing error", err);
+      }
 
-    let zippedMp = fs.createWriteStream(zipFilePath);
-    let newArchive = archiver('zip');
-    zippedMp.on('close', () => {
-      let opts = {
-        method: 'POST',
-          form: {
-                        BODY: fs.createReadStream(zipFilePath)
-                }
-      };
-      ocRequest('/ingest/addZippedMediaPackage', opts)
-        .then(() => {
-          console.log('done ingesting zipped mp', mp.id);
-          fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.ingested`, '', err => {
+      // Manifest was written, add it to list of files for mediapackage
+      mp.files.push('manifest.xml');
+
+      let zipFilePath = `/tmp/${Math.random().toString(36).substring(2, 8)}.zip`;
+
+      let zippedMp = fs.createWriteStream(zipFilePath);
+      let newArchive = archiver('zip');
+      zippedMp.on('close', () => {
+        let size = fs.lstatSync(zipFilePath).size;
+        let bytes = 0;
+        console.log('uploading', size);
+        let opts = {
+          method: 'POST',
+            form: {
+                          BODY: fs.createReadStream(zipFilePath).on('data', chunk => {
+                                  bytes += chunk.length;
+                                  io.emit('ingest-progress', {id: mp.id, progress: (bytes/size) * 100 >> 0});
+                                })
+                  }
+        };
+        ocRequest('/ingest/addZippedMediaPackage', opts)
+          .then(() => {
+            console.log('done ingesting zipped mp', mp.id);
+            fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.ingested`, '', err => {
+            });
+            io.emit('ingest-state', {id: mp.id, state: 'ingested'});
+            fs.unlink(zipFilePath, err => {});
+            resolve();
+          })
+          .catch(err => {
+            fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.unusable`, '', err => {
+            });
+            mp.files.filter(file => file.charAt(0) === '.' && file !== '.unusable')
+              .forEach(file => fs.unlink(`${baseDir}/${mp.agent}/${mp.id}/${file}`, err => {}));
+            io.emit('ingest-state', {id: mp.id, state: 'unusable'});
+            console.log('got error', err);
+            reject();
           });
-          io.emit('ingest-state', {id: mp.id, state: 'ingested'});
-        })
-        .catch(err => {
-          fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.unusable`, '', err => {
-          });
-          mp.files.filter(file => file.charAt(0) === '.' && file !== '.unusable')
-            .forEach(file => fs.unlink(`${baseDir}/${mp.agent}/${mp.id}/${file}`, err => {}));
-          io.emit('ingest-state', {id: mp.id, state: 'unusable'});
-          console.log('got error', err)
-        });
+      });
+      zippedMp.on('end', () => {
+        console.log('done receiving data');
+      });
+      newArchive.on('warning', err => {
+        console.log('warning', err);
+      });
+      newArchive.on('error', err => {
+        console.log('error', err);
+      });
 
-    });
-    zippedMp.on('end', () => {
-      console.log('done receiving data');
-    });
-    newArchive.on('warning', err => {
-      console.log('warning', err);
-    });
-    newArchive.on('error', err => {
-      console.log('error', err);
-    });
+      newArchive.pipe(zippedMp);
 
-    newArchive.pipe(zippedMp);
+      mp.files.forEach(file => {
+        if (file.indexOf('baseManifest') === -1) {
+          console.log('adding', file);
+          newArchive.append(fs.createReadStream(`${baseDir}/${mp.agent}/${mp.id}/${file}`), {name: file});
+        }
+      });
 
-    mp.files.forEach(file => {
-      newArchive.append(fs.createReadStream(`${baseDir}/${mp.agent}/${mp.id}/${file}`), {name: file});
+      newArchive.finalize();
     });
-
-    newArchive.finalize();
   });
 }
 

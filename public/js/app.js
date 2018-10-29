@@ -1,11 +1,13 @@
 let recordings = {};
 let queues = {};
 let completed = {};
+let recordingTimes = {};
 
 let socket = io();
 
 document.getElementById('caCheck').addEventListener('click', checkCAs, false);
 document.getElementById('recCheck').addEventListener('click', checkRecordings, false);
+document.getElementById('adhocStart').addEventListener('click', adhocRecordingModal, false);
 
 socket.on('queue', queue => {
   let queueList = document.querySelector('#queue .list');
@@ -82,7 +84,6 @@ socket.on('queue-remove', item => {
 });
 
 socket.on('recorder-item', item => {
-  console.log(item);
   if (!document.getElementById(`recording-${item.mediapackage}`)) {
     document.querySelector('#recording .list')
       .appendChild(createDetailedElement('recording', item));
@@ -109,8 +110,26 @@ socket.on('progress', recording => {
     el.appendChild(document.createElement('span'));
   }
 
-  el.querySelector('span:last-child').textContent = recording.time;
+ // el.querySelector('span:last-child').textContent = recording.time;
+  let timerDisplay = el.querySelector('span:last-child');
+  if (!loops[recording.mediapackage]) {
+    loops[recording.mediapackage] = {
+      timeStamp: 0,
+      fn: ts => {
+        loops[recording.mediapackage].timeStamp = loops[recording.mediapackage].timeStamp || ts;
+        timerDisplay.textContent = displayDuration((ts - loops[recording.mediapackage].timeStamp) >> 0);
+      }
+    };
+  }
 });
+
+function displayDuration(elapsedMs) {
+  let ms = elapsedMs % 1000;
+  let elapsedSeconds = (elapsedMs / 1000) >> 0;
+  let seconds = elapsedSeconds % 60;
+  let mins = (elapsedSeconds - seconds)
+  return elapsedMs;
+}
 
 function updateQueueNumber() {
   if (document.querySelector('label[data-name=upcoming]')) {
@@ -268,6 +287,10 @@ function getEventElement(el) {
   }
 
   return parentEl;
+}
+
+function adhocRecordingModal(e) {
+  document.getElementById('adhocRecordingToggle').checked = true;
 }
 
 function createItem(listType, id) {
@@ -428,4 +451,22 @@ socket.on('ingest-state', details => {
   }
 });
 
+socket.on('ingest-progress', details => {
+  let completedEl = document.getElementById(`completed-${details.id}`);
+  if (!completedEl) {
+    return;
+  }
 
+  completedEl.querySelector('progress').value = details.progress;
+});
+
+
+function rafLoop(timestamp) {
+  for (let key in loops) {
+    loops[key].fn(timestamp);
+  }
+  requestAnimationFrame(rafLoop);
+}
+
+let loops = {};
+requestAnimationFrame(rafLoop);

@@ -22,10 +22,39 @@ const dc = RequestDigest(adminUser, adminPass);
 
 const startBuffer = +(process.env.ocStartBuffer || 30); //number of seconds to wait for actual CA to start capturing
 
+let supportedVenues = [];
 let queue = {};
 let recorders = {};
 let users = {};
 let ingestQueue = [];
+let winston = require('winston');
+var fs = require( 'fs' );
+var path = require('path');
+var logDir = 'log'; // directory path you want to set
+
+const EXEC_MAX_WAIT = 10000;
+
+if ( !fs.existsSync( logDir ) ) {
+  // Create the directory if it does not exist
+  fs.mkdirSync( logDir );
+}
+
+let logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.printf(info => {
+          return `${info.timestamp} ${info.level}: ${info.message}`;
+      })
+  ),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({filename: 'app.log'})
+    //new (winston.transports.File)({filename: path.join(logDir, '/recorder.log')})
+  ]
+});
+
+logger.info("Starting fallback recorder...");
 
 let ocRequest = (url, opts) => {
   opts = opts || {};
@@ -37,7 +66,8 @@ let ocRequest = (url, opts) => {
       method: opts.method || 'GET',
       headers: {
         "User-Agent": "Node fallback CA",
-        "X-Requested-Auth": 'Digest'
+        "X-Requested-Auth": 'Digest',
+        "Accept": 'application/json, text/html, */*'
       }
     }
 
@@ -168,7 +198,9 @@ function hasAudio(agent) {
     if (!agent.stream || agent.stream.indexOf('rtsp') === -1) {
       agent.stream = `rtsp://${agent.name}-cam01.uct.ac.za/axis-media/media.amp`;
     }
-    cp.exec(`ffprobe -loglevel quiet -show_streams ${agent.stream} | grep codec_type=audio`, (err, res) => {
+    let resolveTimeout = null;
+    let checkAudio = cp.exec(`ffprobe -loglevel quiet -show_streams ${agent.stream} | grep codec_type=audio`, (err, res) => {
+      clearTimeout(resolveTimeout);
       if (err) {
         return resolve(false);
       }
@@ -179,8 +211,74 @@ function hasAudio(agent) {
 
       resolve(false);
     });
+
+    resolveTimeout = setTimeout(() => {
+      console.log('audio check took too long for', agent.name);
+      logger.info('audio check took too long for', agent.name);
+      checkAudio.kill();
+      resolve(false);
+    }, EXEC_MAX_WAIT);
   });
 }
+
+function getSupportedVenues() {
+  return new Promise(async(resolve, reject) => {
+    try {
+      let caNames = await ocRequest('/mrtg/dashboard/cainfo.json');
+      let caArray = Object.keys(caNames);
+      let agentInfo = await new Promise(resolve => {
+                        Promise.all(
+                          caArray.map(caName => {
+                            return new Promise(res => {
+                              res(getAgentInfo({agent_id: caName}))
+                            })
+                          })
+                        )
+                        .then(agents => resolve(agents))
+                      });
+       console.log('Checking audio for', caArray.length, 'agents');
+       let numTried = 0;
+       supportedVenues = (await new Promise(resolve => {
+                           Promise.all(
+                             agentInfo.map((agent) => {
+                               return new Promise(async(res) => {
+                                 try {
+                                   agent.hasAudio = await hasAudio(agent);
+                                 } catch(err) {
+                                   console.log('error in hasaudio calls', err);
+                                   agent.hasAudio = false;
+                                 }
+                                 agent.lastAudioCheck = (new Date()).getTime();
+                                 res(agent);
+                               })
+                             })
+                           )
+                           .then(agents => {
+                             console.log('Audio check complete');
+                             logger.log('info', 'Audio check complete');
+                             logger.info('Audio check complete');
+                             resolve(agents.filter(agent => agent.hasAudio))
+                           });
+                         }))
+                         .map(agent => {
+                           return {
+                             state: agent.state,
+                             name: agent.name,
+                             readableName: caNames[agent.name] || agent.name,
+                             ip: agent.ip,
+                             lastUpdate: agent.lastUpdate,
+                             lastAudioCheck: agent.lastAudioCheck
+                           }
+                         });
+
+      io.emit('agent-supported', supportedVenues);
+    } catch(e) {
+      console.log('error in getSupportedVenues', e);
+    }
+  });
+}
+
+getSupportedVenues();
 
 function getAgentInfo(info) {
   return new Promise(resolve => {
@@ -307,7 +405,7 @@ function attachEvents(fork) {
           if (Object.keys(users).length) {
             fork.send({event: 'notify.start'});
           }
-          break; 
+          break;
 
         case 'record.fail':
           console.log(msg.error, msg.payload);
@@ -342,7 +440,7 @@ function attachEvents(fork) {
             users[key].socket.emit('recorder-item', msg.payload);
             users[key].socket.leave(id);
           }
-          
+
           break;
       }
     }
@@ -370,7 +468,7 @@ function saveMediapackage(mpId, dir) {
 
         parseString(res, (fe, obj) => {
           try {
-            ocRequest(obj.mediapackage.metadata[0].catalog[0].url[0].replace('http://localhost:8080', '').replace('http://media.uct.ac.za', ''))
+            ocRequest(obj.mediapackage.metadata[0].catalog[0].url[0].replace('http://localhost:8080', '').replace('http://media.uct.ac.za', '').replace('http://mediadev.uct.ac.za', ''))
               .then(ep => {
                 fs.writeFile(`${dir}/episode.xml`, ep, eerr => {
                   if (eerr) {
@@ -389,7 +487,7 @@ function saveMediapackage(mpId, dir) {
                 });
               })
               .catch(ee => console.log('episode.xml fail', ee));
-           
+
           } catch(e) {
             console.log('problem getting metadata');
           }
@@ -474,6 +572,10 @@ app.delete('/agent/:agent/rec/:id', (req, res) => {
   //TODO: add auth before finishing this
 });
 
+app.get('/agent', (req, res) => {
+  res.json(supportedVenues);
+});
+
 app.put('/agent', (req, res) => {
   res.send();
   getSchedule();
@@ -527,7 +629,7 @@ app.post('/rec/:id/ingest', async (req, res) => {
 async function confirmState(mp) {
   let state = '';
   let isSameState = false;
-  let dirPath =`${baseDir}/${mp.agent}/${mp.id}`; 
+  let dirPath =`${baseDir}/${mp.agent}/${mp.id}`;
   let details = await getRecordingDetails(mp);
 //TODO: consider more cases, e.g. backup recorder KNOWS that a saved recording is a failure
   if (!mp.details && typeof mp.details == 'string') {
@@ -619,7 +721,7 @@ function getAgentsRecordings(agentArr) {
                     .filter(result => result.length)
                     .reduce((all, result) => {
                       return all.concat(result);
-                    });
+                    }, []);
         resolve(results);
       })
       .catch( err => reject(err) );
@@ -657,19 +759,24 @@ function getRecordingDetailsByArray(infos) {
 
 function getRecordingDetailsById(id) {
   return new Promise(async (resolve, reject) => {
-    if (!id) {
-      return reject('no id given');
-    }
+    try {
+      if (!id) {
+        return reject('no id given');
+      }
 
-    let allRecordings = await getAllRecordings();
-    resolve(allRecordings
-             .filter(rec => rec.id === id)
-             .reduce((all, rec) => rec, null));
+      let allRecordings = await getAllRecordings();
+      resolve(allRecordings
+               .filter(rec => rec.id === id)
+               .reduce((all, rec) => rec, null));
+    } catch(e) {
+      resolve(null);
+    }
   });
 }
 
 function getEventInformation(files, fileDir) {
   return new Promise(async (resolve, reject) => {
+    console.log(files);
     if (files.indexOf('baseManifest.xml') === -1 && files.indexOf('presenter.mp4') === -1) {
       return reject('no files');
     }
@@ -772,8 +879,10 @@ function getEventInformation(files, fileDir) {
 
 function probeMedia(filepath) {
   return new Promise((resolve, reject) => {
+    console.log(`probing ${filepath}`);
     cp.exec(`ffprobe ${filepath}`, (e, stdout, stderr) => {
       if (e) {
+        console.log(`probe error for ${filepath}`);
         return resolve(null);
       }
 
@@ -793,6 +902,7 @@ function probeMedia(filepath) {
                         }
                         return all;
                       }, {});
+      console.log(details);
       resolve(details);
     });
   });
@@ -809,7 +919,7 @@ function isIngestAllowed(id) {
         resolve(false);
       })
       .catch(err => {
-        console.log('got this error', err.statusCode);
+        console.log('got this error on line 888:', err.statusCode);
         switch(err.statusCode) {
           case 404:
             resolve(true);
@@ -834,39 +944,11 @@ async function ingestRecording(mp) {
   try {
     let ingestAttempt = await ingestZippedMediapackage(mp);
     console.log('ingest complete, workflow started', ingestAttempt);
+    notifyMediapackageCaptured(mp);
   } catch(e) {
     console.log('caught error at ingestRecording', e);
     io.emit('ingest-failed', {id: mp.id, err: e});
   }
-/*
-  try {
-    let remoteDetails = await getEventDetailsOnServer(mp.id);
-    try {
-      let trackifiedMp = await addTrack(mp);
-      console.log('trackified mp', trackifiedMp);
-
-      let wfOpts = {
-        method: 'POST',
-          form: {
-                  mediaPackage: trackifiedMp,
-                }
-      }
-      let ingest = await ocRequest('/ingest/ingest', wfOpts);
-      console.log('ingest complete, workflow started', ingest);
-    } catch(trackErr) {
-      console.log(trackErr);
-    }
-  } catch(e) {
-    switch (e.statusCode) {
-      case 404:
-        ingestZippedMediapackage(mp);
-        break;
-
-      default:
-        io.emit('ingest-failed', {id: mp.id, err: e});
-      }
-  }
-*/
 }
 
 async function getManifest(mp) {
@@ -883,7 +965,7 @@ async function getManifest(mp) {
 }
 
 async function addTrack(mp) {
-  
+
   console.log('about to add track');
   try {
     let manifest = await getManifest(mp);
@@ -904,6 +986,7 @@ async function addTrack(mp) {
 }
 
 function ingestZippedMediapackage(mp) {
+  console.log(mp);
   let duration = mp.probe.duration.split(':')
                    .map(unit => +unit)
                    .reduce((sum, unit, i) => sum + unit * Math.pow(60, 2 - i), 0) * 1000;
@@ -1028,7 +1111,7 @@ function ingestZippedMediapackage(mp) {
                                 })
                   }
         };
-        ocRequest('/ingest/addZippedMediaPackage', opts)
+        ocRequest('/ingest/addZippedMediaPackage/uct-process-for-editing', opts)
           .then(() => {
             console.log('done ingesting zipped mp', mp.id);
             fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.ingested`, '', err => {
@@ -1069,6 +1152,19 @@ function ingestZippedMediapackage(mp) {
       newArchive.finalize();
     });
   });
+}
+
+function notifyMediapackageCaptured(mp) {
+  let opts = {
+    method: 'PUT',
+      form: {
+              state: 'capture_finished'
+            }
+  };
+  console.log('letting the server know this recording is done');
+  ocRequest(`/recordings/${mp.id}/recordingStatus`, opts)
+    .then(res => console.log('got this response for setting recording status', res))
+    .catch(err => console.log('got this error when setting recording status', err));
 }
 
 server.listen(12345);

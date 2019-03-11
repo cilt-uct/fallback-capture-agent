@@ -458,6 +458,21 @@ ul .list:empty::before {
   content: 'Ingested already';
 }
 
+#completed li.preparing ul button[disabled]:last-of-type::after {
+  content: 'Preparing';
+  color: #555;
+}
+
+#completed li.uploading ul button[disabled]:last-of-type::after {
+  animation: uploadText 3s infinite;
+  font-style: italic;
+}
+
+#completed li.confirmation ul button[disabled]:last-of-type::after {
+  animation: confirmText 3s infinite;
+  font-style: italic;
+}
+
 #completed li[data-state=unusable] ul button:last-of-type::after {
   content: 'Unable to ingest failed recording';
 }
@@ -654,18 +669,18 @@ input[name=view]:nth-of-type(4):checked ~ .viewSelectionContainer button:nth-of-
   }
 }
 
-progress[value] {
+progress {
   -webkit-appearance: none;
   appearance: none;
 }
 
-progress[value]::-webkit-progress-bar {
+progress::-webkit-progress-bar {
   background-color: #eee;
   border-radius: 2px;
   box-shadow: 0 2px 5px rgba(0,0,0,0.2) inset;
 }
 
-progress[value]::-webkit-progress-value {
+progress::-webkit-progress-value {
   border-radius: 2px;
   background: #009688;
 }
@@ -784,4 +799,28 @@ progress[value]::-webkit-progress-value {
 
 input[type=number] {
   width: 5rem;
+}
+
+@keyframes uploadText {
+  0% {
+    content: 'Uploading.';
+  }
+  33% {
+    content: 'Uploading..';
+  }
+  66% {
+    content: 'Uploading...';
+  }
+}
+
+@keyframes confirmText {
+  0% {
+    content: 'Awaiting confirmation.';
+  }
+  33% {
+    content: 'Awaiting confirmation..';
+  }
+  66% {
+    content: 'Awaiting confirmation...';
+  }
 }

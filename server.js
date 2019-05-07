@@ -28,7 +28,6 @@ let recorders = {};
 let users = {};
 let ingestQueue = [];
 let winston = require('winston');
-var fs = require( 'fs' );
 var path = require('path');
 var logDir = 'log'; // directory path you want to set
 
@@ -49,7 +48,6 @@ let logger = winston.createLogger({
   ),
   transports: [
     new winston.transports.Console(),
-    //new winston.transports.File({filename: 'app.log'})
     new (winston.transports.File)({filename: path.join(logDir, '/app.log')})
   ]
 });
@@ -138,6 +136,12 @@ setInterval(() => {
   getSchedule();
 }, pollingTime);
 
+function logError(msg, err) {
+  logger.error(msg +' '+ err);
+  return console.log(msg, err);
+}
+
+
 function getSchedule() {
   io.emit('agent-check-start');
   let getScheduled = `/admin-ng/event/events.json/?filter=status:EVENTS.EVENTS.STATUS.SCHEDULED,startDate:${encodeURIComponent(getCurrentDateTimeRange())}`;
@@ -159,6 +163,7 @@ function getSchedule() {
                                   !isAgentHealthy(agent) ? startBuffer : 0
                                 );
                    if (buffer && !queue[agent.mediapackage]) {
+                     logger.info(`Queuing check for mediapackage ${agent.mediapackage} at ${agent.start}`);
                      console.log(`Queuing check for mediapackage ${agent.mediapackage} at ${agent.start}`);
                      let interval = getSecondsToStart(agent.start) + buffer * 1000;
                      queue[agent.mediapackage] = {
@@ -178,9 +183,9 @@ function getSchedule() {
              });
              io.emit('agent-check-end');
          })
-        .catch(err => console.log('all error', err));
+        .catch(err => logError('all error', err));
     })
-    .catch(err => console.log('error', err));
+    .catch(err => logError('error', err));
 }
 
 function getCurrentDateTimeRange() {
@@ -202,19 +207,21 @@ function hasAudio(agent) {
     let checkAudio = cp.exec(`ffprobe -loglevel quiet -show_streams ${agent.stream} | grep codec_type=audio`, (err, res) => {
       clearTimeout(resolveTimeout);
       if (err) {
+        logger.error('audio check error for ' + agent.name);
         return resolve(false);
       }
 
       if (res) {
+        logger.info('audio check resolved for ' + agent.name);
         return resolve(true);
       }
-
+      logger.warn('audio check not resolved for ' + agent.name);
       resolve(false);
     });
 
     resolveTimeout = setTimeout(() => {
       console.log('audio check took too long for', agent.name);
-      logger.info('audio check took too long for', agent.name);
+      logger.info('audio check took too long for' + agent.name);
       checkAudio.kill();
       resolve(false);
     }, EXEC_MAX_WAIT);
@@ -236,7 +243,8 @@ function getSupportedVenues() {
                         )
                         .then(agents => resolve(agents))
                       });
-       console.log('Checking audio for', caArray.length, 'agents');
+       console.log(`Checking audio for ${caArray.length} agents`);
+       logger.info(`Checking audio for ${caArray.length} agents`);
        let numTried = 0;
        supportedVenues = (await new Promise(resolve => {
                            Promise.all(
@@ -245,7 +253,7 @@ function getSupportedVenues() {
                                  try {
                                    agent.hasAudio = await hasAudio(agent);
                                  } catch(err) {
-                                   console.log('error in hasaudio calls', err);
+                                   logError('error in hasaudio calls', err);
                                    agent.hasAudio = false;
                                  }
                                  agent.lastAudioCheck = (new Date()).getTime();
@@ -255,7 +263,7 @@ function getSupportedVenues() {
                            )
                            .then(agents => {
                              console.log('Audio check complete');
-                             logger.log('info', 'Audio check complete');
+                             //logger.log('info', 'Audio check complete');
                              logger.info('Audio check complete');
                              resolve(agents.filter(agent => agent.hasAudio))
                            });
@@ -273,7 +281,7 @@ function getSupportedVenues() {
 
       io.emit('agent-supported', supportedVenues);
     } catch(e) {
-      console.log('error in getSupportedVenues', e);
+      logError('error in getSupportedVenues', e);
     }
   });
 }
@@ -285,6 +293,7 @@ function getAgentInfo(info) {
     ocRequest(`/capture-admin/agents/${info.agent_id}.json`)
       .then(res => {
         let agentState = res['agent-state-update'];
+        logger.info(`capture-admin/agents ${info.agent_id}: ${agentState.state} - ${agentState['time-since-last-update']}`);
         resolve({
           mediapackage: info.id,
           start: info.technical_start,
@@ -300,7 +309,7 @@ function getAgentInfo(info) {
                     .reduce((collect, item) => collect = item, null)
         });
       })
-      .catch(err => resolve(null));
+      .catch(err => function (err) { logError('getAgentInfo', err); return resolve(null)});
   });
 }
 
@@ -351,11 +360,13 @@ function getSecondsToStart(dateString) {
 
 function recordIfNotUp(info) {
   console.log('starting CA check...');
+  logger.info('starting CA check...');
   if (!recorders[info.id]) {
     checkAgentState(info)
       .then(agent => {
         if (!agent.isOnline && !recorders[agent.mediapackage]) {
           console.log('CA', agent.name, 'is not up');
+          logger.error('CA '+ agent.name +' is not up');
           recorders[agent.mediapackage] = cp.fork('./record.js');
           recorders[agent.mediapackage].on('message', msg => {
             if (msg === 'started') {
@@ -370,7 +381,7 @@ function recordIfNotUp(info) {
           let recordingDir = `${baseDir}/${agent.name}/${agent.mediapackage}`;
           mkdirp(recordingDir, err => {
             if (err) {
-              return console.log(err);
+              return logError('CA', err);
             }
 
             recorders[agent.mediapackage].send({event: 'directory', payload: {value: recordingDir}});
@@ -415,6 +426,8 @@ function attachEvents(fork) {
           fork.kill();
           let mpId = msg.payload.mediapackage;
           console.log(mpId, 'recording completed');
+          logger.info(mpId +' recording completed');
+
           io.emit('recorder-complete', mpId);
           if (queue[mpId]) {
             clearTimeout(queue[mpId].timer);
@@ -459,10 +472,12 @@ function getDuration(info) {
 
 function saveMediapackage(mpId, dir) {
   console.log('Saving mediapackage', mpId);
+  logger.info('Saving mediapackage '+ mpId);
   ocRequest(`/assets/episode/${mpId}`, {})
     .then(res => {
       fs.writeFile(`${dir}/baseManifest.xml`, res, err => {
         if (err) {
+          logger.error('could not save baseManifest.xml for '+ mpId);
           return console.log('could not save baseManifest.xml for', mpId);
         }
 
@@ -472,7 +487,7 @@ function saveMediapackage(mpId, dir) {
               .then(ep => {
                 fs.writeFile(`${dir}/episode.xml`, ep, eerr => {
                   if (eerr) {
-                    console.log(eerr);
+                    logError('writefile episode.xml', eerr);
                   }
                 });
 
@@ -486,15 +501,15 @@ function saveMediapackage(mpId, dir) {
                   }
                 });
               })
-              .catch(ee => console.log('episode.xml fail', ee));
+              .catch(ee => logError('episode.xml fail', ee));
 
           } catch(e) {
-            console.log('problem getting metadata');
+            logError('problem getting metadata', e);
           }
         });
       });
     })
-    .catch(err => console.log('error mp saving', err));
+    .catch(err => logError('error mp saving', err));
 }
 
 app.get('/rec', async (req, res, next) => {
@@ -557,9 +572,9 @@ app.delete('/agent/:agent/rec/:id', (req, res) => {
                      users[key].socket.emit('history', recordings);
                    }
                   })
-                 .catch(emitErr => console.log('got this emit error', emitErr));
+                 .catch(emitErr => logError('got this emit error', emitErr));
               } catch(e) {
-                console.log('get all recordings delete error', e);
+                logError('get all recordings delete error', e);
               }
             });
           })
@@ -602,7 +617,7 @@ app.put('/rec', async (req, res) => {
       results.forEach(result => confirmState(result));
       io.emit('rec-check-end');
     })
-    .catch(err => console.log(err));
+    .catch(err => logError('rec-check-end', err));
 });
 
 app.post('/rec/:id/ingest', async (req, res) => {
@@ -621,7 +636,7 @@ app.post('/rec/:id/ingest', async (req, res) => {
     ingestRecording(mp);
     res.status(202).send();
   } catch(e) {
-    console.log(e);
+    logError('/rec/:id/ingest ', e);
     res.status(500).send();
   }
 });
@@ -776,6 +791,7 @@ function getRecordingDetailsById(id) {
 
 function getEventInformation(files, fileDir) {
   return new Promise(async (resolve, reject) => {
+    logger.info(files);
     console.log(files);
     if (files.indexOf('baseManifest.xml') === -1 && files.indexOf('presenter.mp4') === -1) {
       return reject('no files');
@@ -879,10 +895,11 @@ function getEventInformation(files, fileDir) {
 
 function probeMedia(filepath) {
   return new Promise((resolve, reject) => {
+    logger.info(`probing ${filepath}`);
     console.log(`probing ${filepath}`);
     cp.exec(`ffprobe ${filepath}`, (e, stdout, stderr) => {
       if (e) {
-        console.log(`probe error for ${filepath}`);
+        logError(`probe error for ${filepath}`, e);
         return resolve(null);
       }
 
@@ -902,6 +919,7 @@ function probeMedia(filepath) {
                         }
                         return all;
                       }, {});
+      logger.info(details);
       console.log(details);
       resolve(details);
     });
@@ -919,7 +937,7 @@ function isIngestAllowed(id) {
         resolve(false);
       })
       .catch(err => {
-        console.log('got this error on line 888:', err.statusCode);
+        logError('isIngestAllowed:', err.statusCode);
         switch(err.statusCode) {
           case 404:
             resolve(true);
@@ -943,10 +961,11 @@ function getEventDetailsOnServer(id) {
 async function ingestRecording(mp) {
   try {
     let ingestAttempt = await ingestZippedMediapackage(mp);
+    logger.info('ingest complete, workflow started '+ ingestAttempt);
     console.log('ingest complete, workflow started', ingestAttempt);
     notifyMediapackageCaptured(mp);
   } catch(e) {
-    console.log('caught error at ingestRecording', e);
+    logError('caught error at ingestRecording', e);
     io.emit('ingest-failed', {id: mp.id, err: e});
   }
 }
@@ -966,6 +985,7 @@ async function getManifest(mp) {
 
 async function addTrack(mp) {
 
+  logger.info('about to add track');
   console.log('about to add track');
   try {
     let manifest = await getManifest(mp);
@@ -980,12 +1000,13 @@ async function addTrack(mp) {
     };
     return await ocRequest('/ingest/addTrack', opts);
   } catch(e) {
-    console.log(e);
+    logError('addTrack', e);
     throw new Error(e);
   }
 }
 
 function ingestZippedMediapackage(mp) {
+  logger.info('ingestZippedMediapackage '+ mp.id);
   console.log(mp);
   let duration = mp.probe.duration.split(':')
                    .map(unit => +unit)
@@ -1088,7 +1109,7 @@ function ingestZippedMediapackage(mp) {
     fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/manifest.xml`, manifest, async err => {
       if (err) {
         reject(err);
-        return console.log("zipped writing error", err);
+        return logError("zipped writing error", err);
       }
 
       // Manifest was written, add it to list of files for mediapackage
@@ -1101,6 +1122,7 @@ function ingestZippedMediapackage(mp) {
       zippedMp.on('close', () => {
         let size = fs.lstatSync(zipFilePath).size;
         let bytes = 0;
+        logger.info('uploading: '+ size);
         console.log('uploading', size);
         let opts = {
           method: 'POST',
@@ -1113,6 +1135,7 @@ function ingestZippedMediapackage(mp) {
         };
         ocRequest('/ingest/addZippedMediaPackage/uct-process-for-editing', opts)
           .then(() => {
+            logger.info('done ingesting zipped mp: '+ mp.id);
             console.log('done ingesting zipped mp', mp.id);
             fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.ingested`, '', err => {
             });
@@ -1126,24 +1149,27 @@ function ingestZippedMediapackage(mp) {
             mp.files.filter(file => file.charAt(0) === '.' && file !== '.unusable')
               .forEach(file => fs.unlink(`${baseDir}/${mp.agent}/${mp.id}/${file}`, err => {}));
             io.emit('ingest-state', {id: mp.id, state: 'unusable'});
-            console.log('got error', err);
+            logError('got error', err);
             reject();
           });
       });
       zippedMp.on('end', () => {
+        logger.info('done receiving data');
         console.log('done receiving data');
       });
       newArchive.on('warning', err => {
+        logger.warn('warning: '+ err);
         console.log('warning', err);
       });
       newArchive.on('error', err => {
-        console.log('error', err);
+        logError('error', err);
       });
 
       newArchive.pipe(zippedMp);
 
       mp.files.forEach(file => {
         if (file.indexOf('baseManifest') === -1) {
+          logger.info('adding: '+ file);
           console.log('adding', file);
           newArchive.append(fs.createReadStream(`${baseDir}/${mp.agent}/${mp.id}/${file}`), {name: file});
         }
@@ -1161,6 +1187,7 @@ function notifyMediapackageCaptured(mp) {
               state: 'capture_finished'
             }
   };
+  logger.info('letting the server know this recording is done');
   console.log('letting the server know this recording is done');
   ocRequest(`/recordings/${mp.id}/recordingStatus`, opts)
     .then(res => console.log('got this response for setting recording status', res))
@@ -1170,7 +1197,7 @@ function notifyMediapackageCaptured(mp) {
 server.listen(12345);
 
 process.on('uncaughtException', e => {
-  console.log(e);
+  logError('uncaughtException', e);
   for (let key in recorders) {
     recorders[key].send({event: 'system.fail'});
   }

@@ -8,6 +8,7 @@ const RequestDigest = require('request-digest');
 const parseString = require('xml2js').parseString;
 const xml = require('xml');
 const archiver = require('archiver');
+const shell = require('shelljs')
 
 const adminUser = process.env.USERNAME || 'opencast_system_account';
 const adminPass = process.env.PASSWORD || 'CHANGE_ME';
@@ -755,7 +756,7 @@ function getEventInformation(files, fileDir) {
           }
 
           r({
-                  title: json.mediapackage.title[0],
+            title: json.mediapackage.title[0],
             seriesTitle: (json.mediapackage.seriestitle || [''])[0]
           });
         });
@@ -838,35 +839,6 @@ async function ingestRecording(mp) {
     console.log('caught error at ingestRecording', e);
     io.emit('ingest-failed', {id: mp.id, err: e});
   }
-/*
-  try {
-    let remoteDetails = await getEventDetailsOnServer(mp.id);
-    try {
-      let trackifiedMp = await addTrack(mp);
-      console.log('trackified mp', trackifiedMp);
-
-      let wfOpts = {
-        method: 'POST',
-          form: {
-                  mediaPackage: trackifiedMp,
-                }
-      }
-      let ingest = await ocRequest('/ingest/ingest', wfOpts);
-      console.log('ingest complete, workflow started', ingest);
-    } catch(trackErr) {
-      console.log(trackErr);
-    }
-  } catch(e) {
-    switch (e.statusCode) {
-      case 404:
-        ingestZippedMediapackage(mp);
-        break;
-
-      default:
-        io.emit('ingest-failed', {id: mp.id, err: e});
-      }
-  }
-*/
 }
 
 async function getManifest(mp) {
@@ -1010,42 +982,45 @@ function ingestZippedMediapackage(mp) {
 
       // Manifest was written, add it to list of files for mediapackage
       mp.files.push('manifest.xml');
-
-      let zipFilePath = `/tmp/${Math.random().toString(36).substring(2, 8)}.zip`;
+      let filename = `${Math.random().toString(36).substring(2, 8)}`
+      let zipFilePath = `/tmp/${filename}.zip`;
 
       let zippedMp = fs.createWriteStream(zipFilePath);
       let newArchive = archiver('zip');
       zippedMp.on('close', () => {
         let size = fs.lstatSync(zipFilePath).size;
         let bytes = 0;
-        console.log('uploading', size);
-        let opts = {
-          method: 'POST',
-            form: {
-                          BODY: fs.createReadStream(zipFilePath).on('data', chunk => {
-                                  bytes += chunk.length;
-                                  io.emit('ingest-progress', {id: mp.id, progress: (bytes/size) * 100 >> 0});
-                                })
-                  }
-        };
-        ocRequest('/ingest/addZippedMediaPackage', opts)
-          .then(() => {
-            console.log('done ingesting zipped mp', mp.id);
-            fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.ingested`, '', err => {
-            });
-            io.emit('ingest-state', {id: mp.id, state: 'ingested'});
-            fs.unlink(zipFilePath, err => {});
-            resolve();
-          })
-          .catch(err => {
-            fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.unusable`, '', err => {
-            });
-            mp.files.filter(file => file.charAt(0) === '.' && file !== '.unusable')
-              .forEach(file => fs.unlink(`${baseDir}/${mp.agent}/${mp.id}/${file}`, err => {}));
-            io.emit('ingest-state', {id: mp.id, state: 'unusable'});
-            console.log('got error', err);
-            reject();
+        console.log(`uploading ${zipFilePath} of size ${size}`);
+
+        console.log("creating request")
+
+        const cmd = shell.exec(`curl -f -i --digest -u ${adminUser}:${adminPass} -H "X-Requested-Auth: Digest" "${host}/ingest/addZippedMediaPackage" -F "BODY=@${zipFilePath}"`)
+
+        if (cmd.code == "0") {
+          console.log('Done ingesting zipped mp', mp.id);
+          fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.ingested`, '', err => {
+            if(err) {
+              console.error("Something went wrong while creating .ingested", err)
+            }
           });
+          io.emit('ingest-state', {id: mp.id, state: 'ingested'});
+          fs.unlink(zipFilePath, err => {});
+          resolve();
+        }
+
+        if (cmd.code != "0") {
+          console.error('Error output: ', cmd.stdout);
+          console.error('Error details: ', cmd.stderr);
+          fs.writeFile(`${baseDir}/${mp.agent}/${mp.id}/.unusable`, '', err => {
+            if(err) {
+              console.error("Something went wrong while creating .unusable", err)
+            }
+          });
+          mp.files.filter(file => file.charAt(0) === '.' && file !== '.unusable')
+            .forEach(file => fs.unlink(`${baseDir}/${mp.agent}/${mp.id}/${file}`, err => {}));
+          io.emit('ingest-state', {id: mp.id, state: 'unusable'});
+          reject();
+        }
       });
       zippedMp.on('end', () => {
         console.log('done receiving data');

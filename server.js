@@ -992,8 +992,6 @@ function ingestZippedMediapackage(mp) {
         let bytes = 0;
         console.log(`uploading ${zipFilePath} of size ${size}`);
 
-        console.log("creating request")
-
         const cmd = shell.exec(`curl -f -i --digest -u ${adminUser}:${adminPass} -H "X-Requested-Auth: Digest" "${host}/ingest/addZippedMediaPackage" -F "BODY=@${zipFilePath}"`)
 
         if (cmd.code == "0") {
@@ -1036,7 +1034,6 @@ function ingestZippedMediapackage(mp) {
 
       mp.files.forEach(file => {
         if (file.indexOf('baseManifest') === -1) {
-          console.log('adding', file);
           newArchive.append(fs.createReadStream(`${baseDir}/${mp.agent}/${mp.id}/${file}`), {name: file});
         }
       });

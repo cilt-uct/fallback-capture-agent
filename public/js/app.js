@@ -190,10 +190,6 @@ function setActionForCompleted(details) {
   if (!details.ingestDate) {
     ingestBtn.addEventListener('click', ingestCompleted, false);
     ingestBtn.removeAttribute('disabled');
-    let ingestProgress = createElement('progress');
-    ingestProgress.min = 0;
-    ingestProgress.max = 100;
-    ingestBtn.appendChild(ingestProgress);
   }
   actionsContainer.appendChild(ingestBtn);
 
@@ -418,7 +414,6 @@ socket.on('rec-check-end', () => {
 });
 
 socket.on('ingest-initiated', mpId => {
-  console.log('ingesting', mpId);
   let completedEl = document.getElementById(`completed-${mpId}`);
   if (completedEl) {
     completedEl.classList.add('ingesting');
@@ -433,7 +428,6 @@ socket.on('ingest-failed', details => {
 });
 
 socket.on('ingest-initiated', mpId => {
-  console.log('ingested', mpId);
   let completedEl = document.getElementById(`completed-${mpId}`);
   if (completedEl) {
     completedEl.classList.remove('ingesting');
@@ -450,16 +444,6 @@ socket.on('ingest-state', details => {
     completedEl.classList.remove('ingesting');
   }
 });
-
-socket.on('ingest-progress', details => {
-  let completedEl = document.getElementById(`completed-${details.id}`);
-  if (!completedEl) {
-    return;
-  }
-
-  completedEl.querySelector('progress').value = details.progress;
-});
-
 
 function rafLoop(timestamp) {
   for (let key in loops) {

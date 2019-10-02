@@ -58,6 +58,18 @@ function displayCompletedRecordings(recordings) {
   updateCompletedNumber();
 }
 
+function removeQueueItem(mpId) {
+  [...document.querySelectorAll(`[id="queue-${mpId}"]`)]
+    .forEach(element => {
+      element.parentNode.removeChild(element);
+    });
+
+  if (queues[mpId]) {
+    delete queues[mpId];
+    updateQueueNumber();
+  }
+}
+
 socket.on('queue-item', item => {
   if (!document.getElementById(`queue-${item.mediapackage}`)) {
     document.querySelector('#queue .list')
@@ -70,34 +82,56 @@ socket.on('queue-item', item => {
 });
 
 socket.on('queue-remove', item => {
-  console.log('removing', item);
-  [...document.querySelectorAll(`[id$="${item.remove}"]`)]
-    .forEach(element => {
-      console.log(element);
-      element.parentNode.removeChild(element);
-    });
-
-  if (queue[item.remove]) {
-    delete queue[item.remove];
-    updateQueueNumber();
-  }
+  removeQueueItem(item.remove);
 });
 
 socket.on('recorder-item', item => {
-  if (!document.getElementById(`recording-${item.mediapackage}`)) {
+  let recItem = document.getElementById(`recording-${item.mediapackage}`);
+  if (!recItem) {
+    //Item doesn't exist. Add it to the recording list view
     document.querySelector('#recording .list')
       .appendChild(createDetailedElement('recording', item));
+  }
+  else if (!recItem.getAttribute('data-id')) {
+    //Item exists already (probably because a progress event was intercepted for it).
+    //Add event details to existing element
+    recItem.setAttribute('data-id', item.mediapackage);
+    let textNode = null;    //this text node has the mpId for the event. Remove it/replace it with the event title
+    let timeDisplay = null; //keep a reference to the timer, so that event detail elements are inserted before it (i.e. timer must be the last element)
+    recItem.childNodes
+      .forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          textNode = node;
+        }
+        else {
+          timeDisplay = node;
+        }
+      });
+    textNode.remove();
+
+    let clone = createDetailedElement('recording', item);
+    [...clone.querySelectorAll('span:not(:last-child)')]
+      .forEach(child => {
+        if (child.textContent) {
+          recItem.insertBefore(child.cloneNode(true), timeDisplay);
+        }
+      });
   }
   if (!recordings[item.mediapackage]) {
     recordings[item.mediapackage] = item;
     updateRecordingNumber();
   }
+
+  removeQueueItem(item.mediapackage);
 });
 
 socket.on('recorder-complete', mpId => {
   if (recordings[mpId]) {
     delete recordings[mpId];
     updateRecordingNumber();
+  }
+  if (loops[mpId]) {
+    delete loops[mpId];
   }
   getCompletedRecordings();
 });
@@ -110,12 +144,16 @@ socket.on('progress', recording => {
     el.appendChild(document.createElement('span'));
   }
 
- // el.querySelector('span:last-child').textContent = recording.time;
-  let timerDisplay = el.querySelector('span:last-child');
   if (!loops[recording.mediapackage]) {
+    let timerDisplay = el.querySelector('span:last-child');
     loops[recording.mediapackage] = {
-      timeStamp: 0,
+      timeStamp: determineRecordingStartTime(recording.time),
+      adjustTimestampBuffer: false,
       fn: ts => {
+        if (!loops[recording.mediapackage].adjustTimestampBuffer) {
+          loops[recording.mediapackage].adjustTimestampBuffer = true;
+          loops[recording.mediapackage].timeStamp += ts;
+        }
         loops[recording.mediapackage].timeStamp = loops[recording.mediapackage].timeStamp || ts;
         timerDisplay.textContent = displayDuration((ts - loops[recording.mediapackage].timeStamp) >> 0);
       }
@@ -123,12 +161,20 @@ socket.on('progress', recording => {
   }
 });
 
+function determineRecordingStartTime(timeStr) {
+  let durationMillis = timeStr.split(':')
+                         .map(unit => +unit)
+                         .reduce((acc, unit, i) => acc += unit * (60 ** (2 - i)), 0) * 1000;
+  return -durationMillis;
+}
+
 function displayDuration(elapsedMs) {
-  let ms = elapsedMs % 1000;
+  let ms = (elapsedMs % 1000) || 1;
   let elapsedSeconds = (elapsedMs / 1000) >> 0;
   let seconds = elapsedSeconds % 60;
-  let mins = (elapsedSeconds - seconds)
-  return elapsedMs;
+  let mins = (elapsedSeconds - seconds) / 60 >> 0;
+  let hours = elapsedSeconds / 3600 >> 0;
+  return `${hours < 10 ? '0' : ''}${hours}:${mins < 10 ? '0' : ''}${mins}:${seconds < 10 ? '0' : ''}${seconds}.${ms < 10 ? '00' : (ms < 100 ? '0' : '')}${ms}`;
 }
 
 function updateQueueNumber() {
@@ -290,7 +336,6 @@ function adhocRecordingModal(e) {
 }
 
 function createItem(listType, id) {
-  console.log(listType, id);
   return createElement('li', id, {id: `${listType}-${id}`});
 }
 
@@ -352,10 +397,11 @@ function monthName(num) {
 }
 
 function createDetailedElement(elType, details) {
-  let uiElement = document.getElementById(`${elType}-${details.mediapackage || details.id}`);
-  if (!uiElement) {
+  //Crap code
+  let uiElement = null;//document.getElementById(`${elType}-${details.mediapackage || details.id}`);
+//  if (!uiElement) {
     uiElement = createElement('li', {id: `${elType}-${details.mediapackage || details.id}`, data: {id: details.id}});
-  }
+//  }
 
   let titleSpan = createElement('span');
   let titleLink = createElement('a', details.title, {
@@ -389,6 +435,35 @@ function checkRecordings(e) {
   });
 }
 
+function logSupportedVenues(venues) {
+  let venueSelect = document.querySelector('#adhocRecordingModal select');
+  let venueList = [...venueSelect.querySelectorAll('option')].map(option => option.value);
+  venues
+    .filter(venue => !!venue.name)
+    .forEach(venue => {
+      if (venueList.indexOf(venue.name) === -1) {
+        let venueOption = document.createElement('option');
+        venueOption.value = venue.name;
+        venueOption.textContent = venue.readableName;
+        venueSelect.appendChild(venueOption);
+      }
+    });
+}
+
+function getSupportedVenues() {
+  return new Promise(resolve => {
+    fetch('/agent')
+      .then(res => res.json())
+      .then(venues => resolve(venues) )
+      .catch(err => {console.log('err', err); resolve([]);})
+  });
+}
+
+async function listSupportedVenues() {
+  let supportedVenues = await getSupportedVenues();
+  logSupportedVenues(supportedVenues);
+}
+
 socket.on('agent-check-start', () => {
   let caCheckBtn = document.getElementById('caCheck');
   caCheckBtn.disabled = true;
@@ -399,6 +474,10 @@ socket.on('agent-check-end', () => {
     let caCheckBtn = document.getElementById('caCheck');
     caCheckBtn.disabled = '';
   }, 1000);
+});
+
+socket.on('agent-supported', supportedVenues => {
+  logSupportedVenues(supportedVenues);
 });
 
 socket.on('rec-check-start', () => {
@@ -423,14 +502,14 @@ socket.on('ingest-initiated', mpId => {
 socket.on('ingest-failed', details => {
   let completedEl = document.getElementById(`completed-${details.id}`);
   if (completedEl) {
-    completedEl.classList.remove('ingesting');
+    completedEl.className = 'eventDetails';
   }
 });
 
 socket.on('ingest-initiated', mpId => {
   let completedEl = document.getElementById(`completed-${mpId}`);
   if (completedEl) {
-    completedEl.classList.remove('ingesting');
+    completedEl.className = 'eventDetails preparing';
     let ingestBtn = completedEl.querySelector('button:last-of-type');
     ingestBtn.disabled = true;
     ingestBtn.removeEventListener('click', ingestCompleted, false);
@@ -441,7 +520,7 @@ socket.on('ingest-state', details => {
   let completedEl = document.getElementById(`completed-${details.id}`);
   if (completedEl) {
     completedEl.setAttribute('data-state', details.state);
-    completedEl.classList.remove('ingesting');
+    completedEl.className = 'eventDetails';
   }
 });
 
@@ -454,3 +533,5 @@ function rafLoop(timestamp) {
 
 let loops = {};
 requestAnimationFrame(rafLoop);
+
+listSupportedVenues();

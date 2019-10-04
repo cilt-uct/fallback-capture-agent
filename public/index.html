@@ -18,23 +18,6 @@
     </p>
   </div>
   <input class="toggleCover hidden" id="adhocRecordingToggle" type="checkbox" autocomplete="off" />
-  <div class="modal" id="adhocRecordingModal">
-    <label class="close" for="adhocRecordingToggle" title="Close modal"></label>
-    <h2>Start ad-hoc recording</h2>
-    <p>
-      <span>Venue</span>
-      <span>
-        <select>
-          <option value="">--Choose capture agent--</option>
-        </select>
-      </span>
-    </p>
-    <p><span>Duration (mins)</span><span><input type="number" placehoder="Default 10mins"/></span></p>
-    <p class="actions">
-      <label for="adhocRecordingToggle" class="info">Cancel</label>
-      <button type="button" class="danger" id="startRecording">Start recording</button>
-    </p>
-  </div>
   <div id="cover">
   </div>
   <main>
@@ -54,12 +37,10 @@
     <input type="radio" name="view" id="toggleRecordingView" checked />
     <input type="radio" name="view" id="toggleUpcomingView" />
     <input type="radio" name="view" id="toggleCompletedView" />
-    <input type="radio" name="view" id="toggleAdhocView" />
     <div class="viewSelectionContainer">
       <label class="viewToggle" for="toggleRecordingView" data-total data-name="recordings">Live<span> recordings</span></label
       ><label class="viewToggle" for="toggleUpcomingView" data-total data-name="upcoming">CA checks</label
-      ><label class="viewToggle" for="toggleCompletedView" data-total data-name="completed">Completed</label
-      ><label class="viewToggle" for="toggleAdhocView" data-total data-name="upcoming">Ad-hoc recording</label>
+      ><label class="viewToggle" for="toggleCompletedView" data-total data-name="completed">Completed</label>
       <button id="caCheck" class="btn info pull-right checkButton"></button>
       <button id="recCheck" class="btn success pull-right checkButton"></button>
       <button id="adhocStart" class="btn success pull-right checkButton"></button>

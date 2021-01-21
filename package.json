@@ -14,7 +14,7 @@
     "request": "2.87.0",
     "request-digest": "^1.0.13",
     "shelljs": "0.8.3",
-    "socket.io": "^2.1.1",
+    "socket.io": "^2.4.0",
     "winston": "3.2.1",
     "xml": "^1.0.1",
     "xml2js": "^0.4.19"

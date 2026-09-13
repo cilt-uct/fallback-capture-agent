@@ -4,19 +4,17 @@
   "description": "Fallback recorder when capture agents are unavailable",
   "repository": "https:///github.com/cilt-uct/fallback-capture-agent",
   "author": "Duncan Smith (@slampunk)",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "archiver": "^3.0.0",
-    "dotenv": "^5.0.0",
-    "express": "^4.16.0",
-    "hawk": "^7.0.0",
-    "hoek": "^5.0.3",
-    "mkdirp": "^1.0.4",
-    "request": "2.87.0",
-    "request-digest": "^1.0.13",
-    "shelljs": "0.8.3",
-    "socket.io": "^2.4.0",
-    "winston": "3.2.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "shelljs": "^0.8.5",
+    "socket.io": "^4.8.3",
+    "winston": "^3.19.0",
     "xml": "^1.0.1",
-    "xml2js": "^0.4.19"
+    "xml2js": "^0.6.2"
   }
 }

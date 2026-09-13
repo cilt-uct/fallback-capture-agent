@@ -1,10 +1,9 @@
-const dotenv = require('dotenv').config();
+const dotenv = require('dotenv').config({ quiet: true });
 const express = require('express');
 const net = require('net');
 const cp = require('child_process');
-const mkdirp = require('mkdirp');
 const fs = require('fs');
-const RequestDigest = require('request-digest');
+const { createDigestClient } = require('./digestClient');
 const parseString = require('xml2js').parseString;
 const xml = require('xml');
 const archiver = require('archiver');
@@ -14,12 +13,11 @@ const adminUser = process.env.USERNAME || 'opencast_system_account';
 const adminPass = process.env.PASSWORD || 'CHANGE_ME';
 const hostname = process.env.HOST || 'octestallinone.virtuos.uos.de';
 const protocol = process.env.PROTOCOL || 'https';
-const protoPort = protocol === 'https' ? 443 : 80;
 const host = `${protocol}://${hostname}`;
 const baseDir = process.env.SAVE_PATH || '/opt/recordings';
 const pollingTime = +(process.env.POLLING_TIME || 15) * 60 * 1000;
 const pollingRange = +(process.env.POLLING_RANGE || 20) * 60 * 1000;
-const dc = RequestDigest(adminUser, adminPass);
+const dc = createDigestClient(adminUser, adminPass);
 
 const startBuffer = +(process.env.ocStartBuffer || 30); //number of seconds to wait for actual CA to start capturing
 
@@ -55,38 +53,43 @@ let logger = winston.createLogger({
 
 logger.info("Starting fallback recorder...");
 
-let ocRequest = (url, opts) => {
+let ocRequest = async (url, opts) => {
   opts = opts || {};
-  return new Promise((resolve, reject) => {
-    let connOptions = {
-      host: host,
-      path: url,
-      port: protoPort,
-      method: opts.method || 'GET',
-      headers: {
-        "User-Agent": "Node fallback CA",
-        "X-Requested-Auth": 'Digest',
-        "Accept": 'application/json, text/html, */*'
+  const headers = {
+    "User-Agent": "Node fallback CA",
+    "X-Requested-Auth": 'Digest',
+    "Accept": 'application/json, text/html, */*'
+  };
+
+  let body;
+  if (opts.form) {
+    body = new FormData();
+    for (const [key, value] of Object.entries(opts.form)) {
+      if (value instanceof Blob) {
+        body.append(key, value, 'presenter.mp4');
+      } else {
+        body.append(key, value);
       }
     }
+  }
 
-    if (opts.form) {
-      connOptions.formData = opts.form;
-    }
-
-    let req = dc.requestAsync(connOptions)
-               .then(res => {
-                 try {
-                   return resolve(JSON.parse(res.body));
-                 } catch(e) {
-                   return resolve(res.body);
-                 }
-                 resolve(res.body);
-               })
-               .catch(err => {
-                 reject(err)
-               });
+  const fullUrl = /^https?:\/\//i.test(url) ? url : `${host}${url}`;
+  const res = await dc.request(fullUrl, {
+    method: opts.method || 'GET',
+    headers,
+    body,
   });
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Bad request, status ${res.status}: ${text}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return text;
+  }
 };
 const app = express();
 const server = require('http').Server(app);
@@ -112,9 +115,8 @@ io.on('connection', socket => {
       return;
     }
 
-    socket.join(`recording-${mpId}`, () => {
-      recorders[mpId].send({event: 'details.request'});
-    });
+    socket.join(`recording-${mpId}`);
+    recorders[mpId].send({event: 'details.request'});
   });
 
   for (let key in recorders) {
@@ -380,7 +382,7 @@ function recordIfNotUp(info) {
           attachEvents(recorders[agent.mediapackage]);
 
           let recordingDir = `${baseDir}/${agent.name}/${agent.mediapackage}`;
-          mkdirp(recordingDir, err => {
+          fs.mkdir(recordingDir, { recursive: true }, err => {
             if (err) {
               return logError('CA', err);
             }
@@ -449,10 +451,12 @@ function attachEvents(fork) {
 
         case 'details.response':
           let id = msg.payload.mediapackage;
-          let awaitingUsers = {...(io.sockets.adapter.rooms['recording-' + id] || {sockets: {}}).sockets};
-          for (let key in awaitingUsers) {
-            users[key].socket.emit('recorder-item', msg.payload);
-            users[key].socket.leave(id);
+          let awaitingUsers = io.sockets.adapter.rooms.get('recording-' + id) || new Set();
+          for (let key of awaitingUsers) {
+            if (users[key]) {
+              users[key].socket.emit('recorder-item', msg.payload);
+              users[key].socket.leave('recording-' + id);
+            }
           }
 
           break;
@@ -996,7 +1000,7 @@ async function addTrack(mp) {
         form: {
                       flavor: 'presenter/source',
                 mediaPackage: manifest.toString(),
-                        BODY: fs.createReadStream(`${baseDir}/${mp.agent}/${mp.id}/presenter.mp4`)
+                        BODY: await fs.openAsBlob(`${baseDir}/${mp.agent}/${mp.id}/presenter.mp4`)
               }
     };
     return await ocRequest('/ingest/addTrack', opts);
@@ -1019,7 +1023,7 @@ function ingestZippedMediapackage(mp) {
         _attr: {
           duration: duration,
                 id: mp.id,
-             xmlns: 'https://mediapackage.opencastproject.org'
+             xmlns: 'http://mediapackage.opencastproject.org'
         }
       },
       {

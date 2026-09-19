@@ -3,7 +3,7 @@ Node.js fallback recorder for Opencast. Records rtsp streams for those Capture A
 
 ## Requirements
 * ffmpeg 3.4.1 (earlier versions may work, depending on build parameters)
-* Node.js 8+
+* Node.js 20+ (uses the built-in `fetch`, `FormData`/`Blob`, and `fs.openAsBlob`)
 
 ## How this application works
 1. Retrieve the list of upcoming events via /admin-ng/event/events.json?filter=[start date within some range]
